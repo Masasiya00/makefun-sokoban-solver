@@ -2,13 +2,14 @@
 [![rank](https://make.fun/badge/sokoban-solver-01-run-20261121/Masasiya00/makefun-sokoban-solver/rank.svg)](https://make.fun/bounty/sokoban-solver-01-run-20261121/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=sokoban-solver-01-run-20261121)
 [![reward](https://make.fun/badge/sokoban-solver-01-run-20261121/Masasiya00/makefun-sokoban-solver/reward.svg)](https://make.fun/bounty/sokoban-solver-01-run-20261121?utm_source=github&utm_medium=readme&utm_campaign=sokoban-solver-01-run-20261121)
 
-# Verbose push-optimal room-by-room Sokoban BFS
+# Golfed push-optimal room-by-room Sokoban BFS
 
 A Sokoban solver for the make.fun bounty
 `sokoban-solver-01-run-20261121`. It reads a level in XSB format and writes
 a push-optimal move string (LURD, lowercase = walk, uppercase = push).
-`main.ts` is written out in full, one clear step per line, so the whole
-algorithm is easy to read and to audit.
+`main.ts` is golfed down to **1,360 bytes** — one-letter names, no wasted
+whitespace — while staying a plain, deterministic push-BFS that solves
+every practice instance at the reference optimum.
 
 ## The key structural fact
 
@@ -19,50 +20,55 @@ the level optimum is exactly the sum of the room optima. The solver
 exploits this by splitting the level into rooms and solving each room
 on its own, instead of searching the whole level at once.
 
-## How it works, step by step
+## How it works
 
-`parseLevel` reads the level text, strips the newlines, and records the
-walls, the goals, the boxes and the player position as flat cell indexes
-(`row * width + column`). It also builds the four step offsets (up, down,
-left, right) from the row width.
+`R` is a recursive flood fill: from a start cell it walks every cell the
+player can reach while walls and boxes act as obstacles. It returns the
+lowest reachable cell index and a parent map. The parent map stores the
+direction index (0–3) used to reach each cell, not the predecessor cell,
+so a walk is rebuilt by following direction indices backwards and
+prepending one lowercase move per step — no `indexOf` lookup is needed.
 
-`splitRooms` finds the hallway row (the row the player starts in) and
-blocks it, then flood-fills from each box: every box and goal reachable
-without crossing the hallway belongs to the same room. The remaining
-boxes form the next room, and so on until every box is assigned.
+`Q` is the room solver: a breadth-first search over push states. A state
+is the sorted box positions plus the canonical player cell — the lowest
+reachable cell from the flood fill, so two states with the same box
+layout and the same reachable region are one state no matter where the
+player stands inside the region. From each state it tries every box in
+every direction: the player must be able to stand on the far side of
+the box, the target cell must be free, and the pushed layout must be
+new. The walk to the push cell plus the push itself is appended to the
+move string. BFS over pushes guarantees the room solution uses the
+fewest pushes possible. The final player position is returned through
+a shared global so the next room starts from where the last push left
+the player.
 
-`reachableFrom` is the flood fill used everywhere: it walks all cells
-the player can reach when the boxes act as walls, and returns both the
-parent map (so a walk path can be rebuilt) and the lowest reachable cell
-index. That lowest cell is the canonical player position: two states
-with the same box layout and the same reachable region are the same
-state, no matter where exactly the player stands inside the region.
-
-`walkMoves` rebuilds a walk from one cell to another by following the
-parent map backwards and prepending one lowercase move per step.
-
-`solveRoom` runs a breadth-first search over room states. A state is
-the sorted box positions plus the canonical player cell. From each
-state it tries every box in every direction: the player must be able
-to stand on the far side of the box, the target cell must be free, and
-the pushed layout must be new. The walk to the push cell plus the push
-itself is appended to the move string. BFS over pushes guarantees the
-room solution uses the fewest pushes possible.
-
-`solveLevel` splits the level into rooms, then solves the rooms in
-order. While solving one room, the boxes of the other rooms are treated
-as walls, because they cannot move yet. After a room is solved its
-boxes sit on its goals, the player ends where the last push left him,
-and the next room starts from there. The per-room move strings are
+The main loop reads each level, parses it with `includes` checks on
+the three mark strings (`.*+` for goals, `*$` for boxes, `+@` for the
+player), and builds the wall map. It blocks the hallway row (the row
+the player starts in), then repeatedly flood-fills from the first
+unsolved box to carve out one room, solves that room with the other
+rooms' boxes treated as walls, and marks the solved room's goals as
+walls for the rooms that follow. The per-room move strings are
 concatenated into the level solution.
+
+## Why not 0-1 BFS + bitmask
+
+A 0-1 BFS over (boxes, player) with BigInt state keys was tried first:
+it is correct but far too slow here (about 48 s for the practice set,
+too close to the 60 s limit), because the un-canonicalised state space
+is several hundred thousand states and every BigInt map/set operation
+costs microseconds. A BigInt push-BFS with a recursive flood fill was
+also tried and took about 45 s for the same reason. The array-based
+push-BFS with canonicalisation stays at about 13 s, so this entry
+keeps the array representation and spends the byte budget on golfing
+it instead.
 
 ## Results on the practice set
 
 Practice set: **score 1,000,000 — 5/5 instances solved, all
 push-optimal** (13, 16, 29, 47, 60 pushes, matching the reference
-optima exactly), deterministic (two runs byte-identical), about 10 s
-for the whole set (limit 60 s). No live-square or frozen-block
-pruning is needed — the rooms are small enough that plain BFS is fast.
+optima exactly), deterministic (grade-local L1 regrade reproduced
+byte for byte), about 13 s per run for the whole set (limit 60 s).
 
 ## Run it
 
