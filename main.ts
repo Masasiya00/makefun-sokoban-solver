@@ -1,34 +1,237 @@
-import f from"node:fs";
-let e=process.env,I=e.MAKEFUN_INPUT_DIR||"/input",O=e.MAKEFUN_OUTPUT_DIR||"/output",D,L="udlrUDLR",n;
-for(let k=1;k<6;){let d="i00"+k++,t=f.readFileSync(I+"/"+d+"/level.txt","utf8"),w=t.indexOf("\n"),T=t.replace(/\n/g,""),G=[],B=[],p,M="",P;
-n=T.length;D=[-w,w,-1,1];
-[...T].forEach((g,i)=>{let c=".*+$@".indexOf(g);if(c>-1){if(c<3)G.push(i);if(c==1||c==3)B.push(i);if(c==2||c==4)p=i}});
-B.sort((a,b)=>a-b);
-let W0=[...T].map(c=>c=="#"|0),r0=p/w|0,H=[...W0],rm=[];
-H.fill(1,r0*w,r0*w+w);
-while(B.length){let a=R2(H,[],B[0])[1],rb=B.filter(x=>a[x]>=0);B=B.filter(x=>a[x]<0);rm.push([rb,G.filter(x=>a[x]>=0)])}
-P=p;
-for(let r of rm){
-let W2=[...W0];rm.forEach(o=>o!=r&&o[0].forEach(b=>W2[b]=1));
-let s=Q(W2,r[1],r[0],P);
-if(!s){M="";break}M+=s[0];P=s[1];r[0]=r[1]}
-f.mkdirSync(O+"/"+d,{recursive:!0});f.writeFileSync(O+"/"+d+"/solution.txt",M)}
-function Q(W,G,B,P){
-let q=[[B,P,""]],s=new Set([B+","+R2(W,B,P)[0]]),i=0;
-while(i<q.length){
-let[b,p,m]=q[i++];
-if(b+""==G+"")return[m,p];
-let a=R2(W,b,p)[1];
-for(let j in b)for(let k=4;k--;){let f=b[j]-D[k],t=b[j]+D[k];
-if(a[f]<0||W[t]||b.includes(t))continue;
-let v=[...b];v[j]=t;v.sort((x,y)=>x-y);
-let y=v+","+R2(W,v,b[j])[0];
-if(s.has(y))continue;s.add(y);
-let w="";for(let z=f;z!=p;z=a[z])w=L[D.indexOf(z-a[z])]+w;
-q.push([v,b[j],m+w+L[4+k]])}}
-return""}
-function R2(W,B,P){
-let o=[...W];for(let x of B)o[x]=1;
-let a=Array(n).fill(-1),s=[P],l=P;a[P]=P;
-for(let x of s){if(x<l)l=x;for(let k=4;k--;){let z=x+D[k];if(!o[z]&&a[z]<0)a[z]=x,s.push(z)}}
-return[l,a]}
+import fs from "node:fs";
+
+const inputDir = process.env.MAKEFUN_INPUT_DIR || "/input";
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR || "/output";
+const walkChars = "udlr";
+const pushChars = "UDLR";
+const markChars = ".*+$@";
+const levelIds = ["i001", "i002", "i003", "i004", "i005"];
+let cellCount = 0;
+let rowWidth = 0;
+let stepOffsets = [0, 0, 0, 0];
+
+function rowOf(cell) {
+  return Math.floor(cell / rowWidth);
+}
+
+function parseLevel(text) {
+  const firstBreak = text.indexOf("\n");
+  rowWidth = firstBreak;
+  const flat = text.replace(/\n/g, "");
+  cellCount = flat.length;
+  stepOffsets = [-rowWidth, rowWidth, -1, 1];
+  const walls = [];
+  const goals = [];
+  const boxes = [];
+  let player = -1;
+  for (let i = 0; i < flat.length; i++) {
+    const ch = flat[i];
+    if (ch === "#") {
+      walls.push(1);
+    } else {
+      walls.push(0);
+    }
+    const mark = markChars.indexOf(ch);
+    if (mark < 0) {
+      continue;
+    }
+    if (mark < 3) {
+      goals.push(i);
+    }
+    if (mark === 1 || mark === 3) {
+      boxes.push(i);
+    }
+    if (mark === 2 || mark === 4) {
+      player = i;
+    }
+  }
+  boxes.sort((a, b) => a - b);
+  goals.sort((a, b) => a - b);
+  return { walls, goals, boxes, player };
+}
+
+function reachableFrom(walls, boxes, start) {
+  const blocked = walls.slice();
+  for (const box of boxes) {
+    blocked[box] = 1;
+  }
+  const parent = new Array(cellCount).fill(-1);
+  const queue = [start];
+  parent[start] = start;
+  let lowest = start;
+  let head = 0;
+  while (head < queue.length) {
+    const cell = queue[head];
+    head = head + 1;
+    if (cell < lowest) {
+      lowest = cell;
+    }
+    for (let dir = 0; dir < 4; dir++) {
+      const next = cell + stepOffsets[dir];
+      if (next < 0) {
+        continue;
+      }
+      if (next >= cellCount) {
+        continue;
+      }
+      if (blocked[next]) {
+        continue;
+      }
+      if (parent[next] >= 0) {
+        continue;
+      }
+      parent[next] = cell;
+      queue.push(next);
+    }
+  }
+  return { lowest, parent };
+}
+
+function walkMoves(parent, from, to) {
+  let moves = "";
+  let cell = to;
+  while (cell !== from) {
+    const prev = parent[cell];
+    const delta = cell - prev;
+    const dir = stepOffsets.indexOf(delta);
+    moves = walkChars[dir] + moves;
+    cell = prev;
+  }
+  return moves;
+}
+
+function solveRoom(walls, goals, boxes, player) {
+  const startReach = reachableFrom(walls, boxes, player);
+  const startKey = boxes.join(",") + "," + startReach.lowest;
+  const seen = new Set([startKey]);
+  const queue = [];
+  queue.push([boxes.slice(), player, ""]);
+  let head = 0;
+  while (head < queue.length) {
+    const entry = queue[head];
+    head = head + 1;
+    const curBoxes = entry[0];
+    const curPlayer = entry[1];
+    const curMoves = entry[2];
+    if (curBoxes.join(",") === goals.join(",")) {
+      return [curMoves, curPlayer];
+    }
+    const reach = reachableFrom(walls, curBoxes, curPlayer);
+    const parent = reach.parent;
+    for (let j = 0; j < curBoxes.length; j++) {
+      const box = curBoxes[j];
+      for (let dir = 0; dir < 4; dir++) {
+        const stand = box - stepOffsets[dir];
+        const target = box + stepOffsets[dir];
+        if (stand < 0) {
+          continue;
+        }
+        if (stand >= cellCount) {
+          continue;
+        }
+        if (target < 0) {
+          continue;
+        }
+        if (target >= cellCount) {
+          continue;
+        }
+        if (parent[stand] < 0) {
+          continue;
+        }
+        if (walls[target]) {
+          continue;
+        }
+        if (curBoxes.includes(target)) {
+          continue;
+        }
+        const nextBoxes = curBoxes.slice();
+        nextBoxes[j] = target;
+        nextBoxes.sort((a, b) => a - b);
+        const nextReach = reachableFrom(walls, nextBoxes, box);
+        const key = nextBoxes.join(",") + "," + nextReach.lowest;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        const walk = walkMoves(parent, curPlayer, stand);
+        const moves = curMoves + walk + pushChars[dir];
+        queue.push([nextBoxes, box, moves]);
+      }
+    }
+  }
+  return "";
+}
+
+function splitRooms(walls, boxes, goals, player) {
+  const hallRow = rowOf(player);
+  const hallBlocked = walls.slice();
+  for (let c = 0; c < rowWidth; c++) {
+    hallBlocked[hallRow * rowWidth + c] = 1;
+  }
+  const rooms = [];
+  let remaining = boxes.slice();
+  while (remaining.length > 0) {
+    const first = remaining[0];
+    const reach = reachableFrom(hallBlocked, [], first);
+    const parent = reach.parent;
+    const roomBoxes = [];
+    const roomGoals = [];
+    const rest = [];
+    for (const box of remaining) {
+      if (parent[box] >= 0) {
+        roomBoxes.push(box);
+      } else {
+        rest.push(box);
+      }
+    }
+    for (const goal of goals) {
+      if (parent[goal] >= 0) {
+        roomGoals.push(goal);
+      }
+    }
+    remaining = rest;
+    rooms.push([roomBoxes, roomGoals]);
+  }
+  return rooms;
+}
+
+function solveLevel(text) {
+  const level = parseLevel(text);
+  const walls = level.walls;
+  const goals = level.goals;
+  const boxes = level.boxes;
+  const player = level.player;
+  const rooms = splitRooms(walls, boxes, goals, player);
+  let moves = "";
+  let curPlayer = player;
+  for (let r = 0; r < rooms.length; r++) {
+    const room = rooms[r];
+    const roomBoxes = room[0];
+    const roomGoals = room[1];
+    const roomWalls = walls.slice();
+    for (let o = 0; o < rooms.length; o++) {
+      if (o === r) {
+        continue;
+      }
+      for (const box of rooms[o][0]) {
+        roomWalls[box] = 1;
+      }
+    }
+    const solved = solveRoom(roomWalls, roomGoals, roomBoxes, curPlayer);
+    if (!solved) {
+      return "";
+    }
+    moves = moves + solved[0];
+    curPlayer = solved[1];
+    rooms[r][0] = roomGoals.slice();
+  }
+  return moves;
+}
+
+for (const id of levelIds) {
+  const levelText = fs.readFileSync(inputDir + "/" + id + "/level.txt", "utf8");
+  const moves = solveLevel(levelText);
+  const outDir = outputDir + "/" + id;
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(outDir + "/solution.txt", moves);
+}
