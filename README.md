@@ -7,7 +7,7 @@
 A Sokoban solver for the make.fun bounty
 `sokoban-solver-01-run-20261121`. It reads a level in XSB format and writes
 a push-optimal move string (LURD, lowercase = walk, uppercase = push).
-`main.ts` is golfed down to **1,323 bytes** — one-letter names, no wasted
+`main.ts` is golfed down to **1,186 bytes** — one-letter names, no wasted
 whitespace — while staying a plain, deterministic push-BFS that solves
 every practice instance at the reference optimum.
 
@@ -34,15 +34,15 @@ tests are `b & x`, and a push is `b ^ x ^ z`.
 `Q` is the room solver: a push-BFS over box layouts only. The player
 position is canonicalised away — the state is just the box bitmask —
 so a `Set` of visited masks is enough, no dist map and no combined
-state key. Each state costs one push. For every state, a second
-recursive flood fill `V` walks the reachable floor from the player's
-cell (walls and boxes blocked) and records, for each reachable cell,
-the direction it was first reached from. Then every reachable cell
-is tried as a pushing position: if the neighbour cell holds a box
-and the cell beyond it is a free room cell, the box is pushed, the
-walk to the pushing position is rebuilt from the parent directions,
-and the new layout is queued. The first time a layout is reached it
-is with the fewest pushes, so the first goal layout found is optimal.
+state key. Each state costs one push. The new part in this version is
+that the reachability flood and the push search are a SINGLE recursive
+walk `V`: for each cell it visits, it tries the push in every
+direction right there, instead of first collecting all reachable cells
+and then looping over them. The parent map `H` stores the whole walk
+string from the player to each cell (`H[c] = H[x] + L[d]`), so the
+walk to a pushing position is read off directly — no separate
+reconstruction loop. The first time a layout is reached it is with the
+fewest pushes, so the first goal layout found is optimal.
 
 The main loop reads each level, parses it with `includes` checks on
 the three mark strings (`.*+` for goals, `*$` for boxes, `+@` for the
@@ -57,7 +57,7 @@ the last push left the player.
 ## Why BigInt push-BFS, not 0-1 BFS
 
 A 0-1 BFS over (boxes, player) with BigInt state keys was tried first:
-it is correct but far too slow here (about 30–34 s for the practice
+it is correct but far too slow here (about 30–48 s for the practice
 set), because the un-canonicalised state space is several hundred
 thousand states and every BigInt map/set operation costs far more
 than a `Number` one, and the string keys needed to combine a BigInt
@@ -66,7 +66,7 @@ plain `Number` key runs in about 13 s. The push-BFS changes the
 trade: it visits only box layouts (no player positions in the state),
 so there are far fewer states and the visited set is keyed by the
 bare BigInt mask — no key combination at all. The result runs the
-practice set in about 3.5 s, roughly 4× faster than the `Number`
+practice set in about 3.5–4 s, roughly 4× faster than the `Number`
 0-1 BFS and 10× faster than the BigInt 0-1 BFS, at a smaller byte
 count. Walk paths come from a depth-first flood fill, so they are
 not always the shortest walks — that does not matter, the score
@@ -79,18 +79,19 @@ counts pushes only, and the pushes are optimal.
 - Bitmask 0-1 BFS with `Number` keys: **1,359 bytes**, ~13 s.
 - Bitmask 0-1 BFS with BigInt keys (iteration 1): **1,340 bytes**,
   ~30–34 s — smaller, but too close to the 60 s limit.
-- BigInt push-BFS with canonicalisation (this entry): **1,323 bytes**,
-  ~3.5 s. Smaller than every previous version and by far the fastest:
-  the store-bits flood fill, the bare-BigInt visited set, and the
-  single-queue push-BFS together remove both the key-combination
-  overhead and most of the state space.
+- BigInt push-BFS with canonicalisation: **1,323 bytes**, ~3.65 s.
+  Smaller than every previous version and by far the fastest.
+- Merged flood + push search, path strings in the parent map (this
+  entry): **1,186 bytes**, ~3.7–4.1 s. Another 137 bytes smaller at
+  the same speed: one recursive walk replaces the separate flood,
+  reachable-cell list, and walk-reconstruction loop.
 
 ## Results on the practice set
 
 Practice set: **score 1,000,000 — 5/5 instances solved, all
 push-optimal** (13, 16, 29, 47, 60 pushes, matching the reference
 optima exactly), deterministic (two runs produced byte-identical
-outputs), about 3.5 s per run for the whole set (limit 60 s).
+outputs), about 3.7–4.1 s per run for the whole set (limit 60 s).
 
 ## Run it
 
