@@ -6,7 +6,8 @@
 
 A compact Sokoban solver for the make.fun bounty
 `sokoban-solver-01-run-20261121`. It reads a level in XSB format and writes
-a push-optimal move string (LURD, uppercase = push).
+a push-optimal move string (LURD, uppercase = push). `main.ts` is 1,534
+bytes, golfed by hand.
 
 ## How it works
 
@@ -23,7 +24,7 @@ small enough that plain BFS is fast.
 
 Practice set: **score 1,000,000 — 5/5 instances solved, all push-optimal**
 (13, 16, 29, 47, 60 pushes, matching the reference optima), deterministic
-(two runs byte-identical), ~15 s for the whole set (limit 60 s).
+(two runs byte-identical), ~11 s for the whole set (limit 60 s).
 
 ## Run it
 
