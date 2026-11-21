@@ -2,13 +2,13 @@
 [![rank](https://make.fun/badge/sokoban-solver-01-run-20261121/Masasiya00/makefun-sokoban-solver/rank.svg)](https://make.fun/bounty/sokoban-solver-01-run-20261121/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=sokoban-solver-01-run-20261121)
 [![reward](https://make.fun/badge/sokoban-solver-01-run-20261121/Masasiya00/makefun-sokoban-solver/reward.svg)](https://make.fun/bounty/sokoban-solver-01-run-20261121?utm_source=github&utm_medium=readme&utm_campaign=sokoban-solver-01-run-20261121)
 
-# Golfed bitmask 0-1 BFS room-by-room Sokoban solver
+# Golfed BigInt push-BFS room-by-room Sokoban solver
 
 A Sokoban solver for the make.fun bounty
 `sokoban-solver-01-run-20261121`. It reads a level in XSB format and writes
 a push-optimal move string (LURD, lowercase = walk, uppercase = push).
-`main.ts` is golfed down to **1,358 bytes** — one-letter names, no wasted
-whitespace — while staying a plain, deterministic 0-1 BFS that solves
+`main.ts` is golfed down to **1,323 bytes** — one-letter names, no wasted
+whitespace — while staying a plain, deterministic push-BFS that solves
 every practice instance at the reference optimum.
 
 ## The key structural fact
@@ -24,19 +24,25 @@ on its own, instead of searching the whole level at once.
 
 `F` is a recursive flood fill: from the first unsolved box it walks
 every floor cell of that room (walls and the hallway row blocked) and
-assigns each cell a 1-based local index, so the room's floor cells are
-numbered 1..N with N at most 29. That index map is the key to the
-bitmask: a room's box layout is a single 29-bit integer, one bit per
-floor cell, and the goal test is one bitwise operation.
+assigns each cell a BigInt bit directly — `1n, 2n, 4n, ...` — instead
+of a numeric index. That is the key to the bitmask: a room's box layout
+is a single BigInt, one bit per floor cell, and the goal test is one
+bitwise operation (`!(b & ~g)`). Storing bits instead of indices
+removes every shift from the hot loop: masks are `g |= a[x]`, box
+tests are `b & x`, and a push is `b ^ x ^ z`.
 
-`Q` is the room solver: a 0-1 BFS over (box bitmask, player cell). Walk
-moves cost 0 and stay on the current level queue; push moves cost 1
-and go to the next level queue, so states are always expanded in
-nondecreasing push count. A `Map` from state key to best push count
-prunes any state reached at a higher cost than before. The state key
-is a plain `Number`, `boxMask * 256 + player` — it fits in 37 bits,
-far below 2^53, so `Map` operations on it are fast. No canonicalisation
-is needed: the dist map already keeps the cheapest cost per state.
+`Q` is the room solver: a push-BFS over box layouts only. The player
+position is canonicalised away — the state is just the box bitmask —
+so a `Set` of visited masks is enough, no dist map and no combined
+state key. Each state costs one push. For every state, a second
+recursive flood fill `V` walks the reachable floor from the player's
+cell (walls and boxes blocked) and records, for each reachable cell,
+the direction it was first reached from. Then every reachable cell
+is tried as a pushing position: if the neighbour cell holds a box
+and the cell beyond it is a free room cell, the box is pushed, the
+walk to the pushing position is rebuilt from the parent directions,
+and the new layout is queued. The first time a layout is reached it
+is with the fewest pushes, so the first goal layout found is optimal.
 
 The main loop reads each level, parses it with `includes` checks on
 the three mark strings (`.*+` for goals, `*$` for boxes, `+@` for the
@@ -48,39 +54,43 @@ concatenated into the level solution. The final player position is
 returned through a shared global so the next room starts from where
 the last push left the player.
 
-## Why Number, not BigInt
+## Why BigInt push-BFS, not 0-1 BFS
 
 A 0-1 BFS over (boxes, player) with BigInt state keys was tried first:
-it is correct but far too slow here (about 48 s for the practice set,
-too close to the 60 s limit), because the un-canonicalised state space
-is several hundred thousand states and every BigInt map/set operation
-costs tens of microseconds. A BigInt push-BFS with a recursive flood
-fill was also tried and took about 45 s for the same reason. The
-breakthrough is that a room has at most 29 floor cells, so the whole
-state — box bitmask plus player cell — fits in a plain JavaScript
-`Number` (under 2^37), and `Number` map operations are far faster
-than BigInt ones. The bitmask 0-1 BFS runs the practice set in about
-13 s, the same speed class as the earlier array push-BFS, at a smaller
-byte count.
+it is correct but far too slow here (about 30–34 s for the practice
+set), because the un-canonicalised state space is several hundred
+thousand states and every BigInt map/set operation costs far more
+than a `Number` one, and the string keys needed to combine a BigInt
+mask with a player cell are slower still. The same 0-1 BFS with a
+plain `Number` key runs in about 13 s. The push-BFS changes the
+trade: it visits only box layouts (no player positions in the state),
+so there are far fewer states and the visited set is keyed by the
+bare BigInt mask — no key combination at all. The result runs the
+practice set in about 3.5 s, roughly 4× faster than the `Number`
+0-1 BFS and 10× faster than the BigInt 0-1 BFS, at a smaller byte
+count. Walk paths come from a depth-first flood fill, so they are
+not always the shortest walks — that does not matter, the score
+counts pushes only, and the pushes are optimal.
 
 ## Improvement history
 
 - Golf v2 (array push-BFS + canonicalisation): **1,534 bytes**, ~13 s.
 - Golf v3 (array push-BFS, heavier golf): **1,360 bytes**, ~13 s.
-- Bitmask 0-1 BFS, ungolfed: 2,729 bytes, 12.4 s — faster, but bigger.
-- Bitmask 0-1 BFS, golfed (this entry): **1,358 bytes**, ~13 s.
-  Smaller than the previous best (1,360) at the same speed class and
-  the same perfect score. The golfing that got it there: 1-based
-  local indices from the flood fill (sparse array, no fill), a
-  recursive flood fill instead of a queue-based one, the wall map as
-  a shared global, and a short-circuit guard on the box test.
+- Bitmask 0-1 BFS with `Number` keys: **1,359 bytes**, ~13 s.
+- Bitmask 0-1 BFS with BigInt keys (iteration 1): **1,340 bytes**,
+  ~30–34 s — smaller, but too close to the 60 s limit.
+- BigInt push-BFS with canonicalisation (this entry): **1,323 bytes**,
+  ~3.5 s. Smaller than every previous version and by far the fastest:
+  the store-bits flood fill, the bare-BigInt visited set, and the
+  single-queue push-BFS together remove both the key-combination
+  overhead and most of the state space.
 
 ## Results on the practice set
 
 Practice set: **score 1,000,000 — 5/5 instances solved, all
 push-optimal** (13, 16, 29, 47, 60 pushes, matching the reference
 optima exactly), deterministic (two runs produced byte-identical
-outputs), about 13 s per run for the whole set (limit 60 s).
+outputs), about 3.5 s per run for the whole set (limit 60 s).
 
 ## Run it
 
